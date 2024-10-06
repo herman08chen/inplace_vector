@@ -5,7 +5,7 @@ void printVec(auto&& v){
   for(auto& i: v){
     std::cout << i << ' ';
   }
-  std::cout << '\n';
+  std::cout << std::endl;
 }
 
 int main(){
@@ -36,4 +36,6 @@ int main(){
   var.swap(toSwap);
   printVec(var);
   printVec(toSwap);
+  auto copy = var;
+  printVec(copy);
 }

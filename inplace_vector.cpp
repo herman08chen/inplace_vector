@@ -5,6 +5,7 @@
 #include <iterator>
 #include <type_traits>
 #include <ranges>
+#include <iostream>
 
 template< class R, class T >
 concept container_compatible_range =
@@ -28,10 +29,85 @@ public:
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
 //Member Functions
-  constexpr inplace_vector() noexcept : _size{} {}
-  template<typename... Args>
-  constexpr inplace_vector(Args&&... args) : _data{std::forward<Args>(args)...}, _size{sizeof...(Args)} {};
+  //constructor
+  constexpr inplace_vector() noexcept : _data{}, _size{} {}
+  constexpr explicit inplace_vector(size_type count) : _data{}, _size{count} {
+    if(count > _max_size) [[unlikely]] throw std::bad_alloc{};
+  }
+  constexpr inplace_vector(size_type count, const T& val) : _data{}, _size{} {
+    if(count > _max_size) [[unlikely]] throw std::bad_alloc{};
+    while(_size != count){
+      _data[_size] = val;
+      _size++;
+    }  
+  }
+  template<class InputIt>
+  constexpr inplace_vector(InputIt first, InputIt last) : _data{}, _size{} {
+    if(std::distance(first, last) > _max_size) [[unlikely]] throw std::bad_alloc{};
+    while(first != last){
+      _data[_size] = *first;
+      first++;
+      _size++;
+    }
+  }
+  template<container_compatible_range<T> R>
+  constexpr inplace_vector(std::from_range_t, R&& rg) : _data{}, _size{} {
+    inplace_vector(std::ranges::begin(rg), std::ranges::end(rg));
+  }
+  constexpr inplace_vector(const inplace_vector& other) : _data{other._data}, _size{other._size} {}
+  constexpr inplace_vector( inplace_vector&& other )
+    noexcept(_max_size == 0 || std::is_nothrow_move_constructible_v<T>) : _data{std::move(other._data)}, _size{other._size}{}
+  constexpr inplace_vector(std::initializer_list<T> init) : _data{reinterpret_cast< std::array<T, _max_size> const& >(*init.begin())}, _size{init.size()} {
+    if(init.size() > _max_size) [[unlikely]] throw std::bad_alloc{};
+  }
+
+  //destructor
+  constexpr ~inplace_vector() noexcept = default;
   
+  //operator=
+  constexpr inplace_vector& operator=(const inplace_vector& other){
+    _data = other._data;
+    _size = other._size;
+    return *this;
+  }
+  constexpr inplace_vector& operator=(inplace_vector&& other) 
+    noexcept(_max_size == 0 ||(std::is_nothrow_move_assignable_v<T> &&std::is_nothrow_move_constructible_v<T>)){
+    _data = std::move(other._data);
+    _size = std::move(other._size);
+    return *this;
+  }
+  constexpr inplace_vector& operator=(std::initializer_list<T> init){
+    if(init.size() > _max_size) [[unlikely]] throw std::bad_alloc{};
+    _size = 0;
+    for(auto& i: init){
+      _data[_size] = i;
+      _size++;
+    }
+    return *this;
+  }
+
+  //assign
+  constexpr void assign(size_type count, const T& val){
+    if(count > _max_size) throw std::bad_alloc{};
+    _size = count;
+    std::fill(begin(), end(), val);
+  }
+  template<class InputIt>
+  constexpr void assign(InputIt first, InputIt last){
+    if(std::distance(first, last) > _max_size) [[unlikely]] throw std::bad_alloc{};
+    _size = std::distance(first, last);
+    std::copy(first, last, begin());
+  }
+  constexpr void assign(std::initializer_list<T> init){
+    assign(init.begin(), init.end());
+  }
+
+  //assign_range
+  template<container_compatible_range<T> R>
+  constexpr void assign_range(R&& rg){
+    assign(std::ranges::begin(rg), std::ranges::end(rg));
+  }
+
   //Element Access
   constexpr reference at(size_type index){
     if(index < _size)[[likely]]{
@@ -252,12 +328,30 @@ public:
       return last;
     }
   }
-  constexpr void swap(inplace_vector& other) noexcept(_max_size == 0 || (std::is_nothrow_swappable_v<T> && std::is_nothrow_move_constructible_v<T>)){
-    for(std::size_t i = 0; i < _size; i++){
-      std::swap(_data[i], other[i]);
-    }
+  constexpr void swap(inplace_vector& rhs) 
+    noexcept(_max_size == 0 || (std::is_nothrow_swappable_v<T> && std::is_nothrow_move_constructible_v<T>)){
+    std::swap(_data, rhs._data);
+    std::swap(_size, rhs._size);
+  }
+
+  //friends
+  constexpr friend void swap(inplace_vector& lhs, inplace_vector& rhs) noexcept(_max_size == 0 || (std::is_nothrow_swappable_v<T> && std::is_nothrow_move_constructible_v<T>)){
+    lhs.swap(rhs);
+  }
+  constexpr friend bool operator==(const inplace_vector<T, _max_size> lhs, const inplace_vector<T, _max_size> rhs){
+    return lhs._data == rhs._data;
+  }
+  constexpr friend auto operator<=>(const inplace_vector<T, _max_size> lhs, const inplace_vector<T, _max_size> rhs){
+    return std::lexicographical_compare_three_way(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
   }
 private:
   std::array<T, _max_size> _data;
   std::size_t _size;
 };
+
+namespace std{
+  template<class T, std::size_t N>
+  constexpr void swap(inplace_vector<T, N>& lhs, inplace_vector<T, N>& rhs) noexcept(N == 0 || (std::is_nothrow_swappable_v<T> && std::is_nothrow_move_constructible_v<T>)){
+    lhs.swap(rhs);
+  }
+}
